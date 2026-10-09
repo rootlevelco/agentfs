@@ -26,3 +26,8 @@ Temporary Items
 .apdisk
 
 .agentfs
+
+# Local credentials
+.env
+.env.*
+!.env.example

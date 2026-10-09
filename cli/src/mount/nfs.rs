@@ -103,7 +103,16 @@ pub(super) async fn mount_nfs(
 
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    nfs_mount(port, &opts.mountpoint)?;
+    // mount waits on the server above, so keep it off the async workers.
+    let mountpoint = opts.mountpoint.clone();
+    let mounted = tokio::task::spawn_blocking(move || nfs_mount(port, &mountpoint))
+        .await
+        .context("mount task failed")
+        .and_then(|r| r);
+    if let Err(e) = mounted {
+        server_handle.abort();
+        return Err(e);
+    }
 
     Ok(MountHandle {
         mountpoint: opts.mountpoint,

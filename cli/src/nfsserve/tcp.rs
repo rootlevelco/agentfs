@@ -212,10 +212,21 @@ impl<T: NFSFileSystem + Send + Sync + 'static> NFSTcp for NFSTcpListener<T> {
     /// Loops forever and never returns handling all incoming connections.
     async fn handle_forever(&self) -> io::Result<()> {
         loop {
-            let (socket, _) = self.listener.accept().await?;
+            let socket = match self.listener.accept().await {
+                Ok((socket, _)) => socket,
+                // A client that gave up before we got to it.
+                Err(e) if e.kind() == io::ErrorKind::ConnectionAborted => continue,
+                Err(e) => return Err(e),
+            };
+            // macOS's mount_nfs probes the port with a connection it closes
+            // at once; by now there may be no peer.
+            let Ok(client_addr) = socket.peer_addr() else {
+                debug!("Dropping a connection that already closed");
+                continue;
+            };
             let context = RPCContext {
                 local_port: self.port,
-                client_addr: socket.peer_addr().unwrap().to_string(),
+                client_addr: client_addr.to_string(),
                 auth: super::rpc::auth_unix::default(),
                 vfs: self.arcfs.clone(),
                 mount_signal: self.mount_signal.clone(),
